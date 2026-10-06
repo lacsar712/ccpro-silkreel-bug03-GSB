@@ -137,15 +137,20 @@ function Yard() {
           <h3>
             {picked.code} · {STATUS_LABEL[picked.status]}
           </h3>
-          <p>最近汤温：{picked.latestTempC ?? "无"} ℃ · 记录 {picked.readingCount} 次</p>
-          <input
-            value={temp}
-            disabled={picked.status === "reeled"}
-            onInput={(e) => setTemp(e.target.value)}
-          />
-          <button disabled={picked.status === "reeled"} onClick={writeTemp}>
-            登记汤温
-          </button>
+          <p>
+            盆码 {picked.code} · 最近汤温：{picked.latestTempC ?? "无"} ℃ · 台账记录 {picked.readingCount} 次
+          </p>
+          {picked.status === "reeled" ? (
+            <p class="hint">该盆已缫完封档，汤温不再登记；如需返工先在下面拨回浸茧或缫丝中。</p>
+          ) : (
+            <div>
+              <input
+                value={temp}
+                onInput={(e) => setTemp(e.target.value)}
+              />
+              <button onClick={writeTemp}>登记汤温</button>
+            </div>
+          )}
           <div>
             <button onClick={() => setStatus("soaking")}>浸茧</button>
             <button onClick={() => setStatus("reeling")}>缫丝中</button>

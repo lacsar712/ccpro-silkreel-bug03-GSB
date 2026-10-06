@@ -34,6 +34,19 @@ class BasinRepo:
         )
         return result.scalar_one_or_none()
 
+    async def get_for_update(self, basin_id: int) -> Basin | None:
+        """登汤温专用：先锁盆行再看状态，两名工并发时第二笔排队见到已缫完，照样被挡。"""
+        result = await self.session.execute(
+            select(Basin)
+            .where(Basin.id == basin_id)
+            .with_for_update()
+        )
+        basin = result.scalar_one_or_none()
+        if basin is not None:
+            # 行锁拿到后再装汤温记录，状态与条数同一口读到。
+            await self.session.refresh(basin, attribute_names=["readings"])
+        return basin
+
     async def add_reading(self, basin: Basin, temp_c: float, operator: str) -> BathReading:
         row = BathReading(basin=basin, water_temp_c=temp_c, operator=operator)
         self.session.add(row)

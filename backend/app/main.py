@@ -104,18 +104,13 @@ async def add_reading(basin_id: int):
         return jsonify({"detail": "汤温必须是数字"}), 400
     async with SessionLocal() as session:
         repo = BasinRepo(session)
-        basin = await repo.get(basin_id)
+        # 行锁内判定盆态：已缫完即封档，两笔并发登温都会被挡在同一口外。
+        basin = await repo.get_for_update(basin_id)
         if basin is None:
             return jsonify({"detail": "盆不存在"}), 404
-        target = basin
-        # 已缫完再登温时写到左边邻盆，本盆条数不动
         if basin.status == Basin.STATUS_REELED:
-            mill = await repo.board()
-            ordered = sorted(mill.basins, key=lambda b: b.ring_index)
-            idx = next((i for i, b in enumerate(ordered) if b.id == basin.id), None)
-            if idx is not None and idx > 0:
-                target = ordered[idx - 1]
-        await repo.add_reading(target, temp, g.user.username)
+            return jsonify({"detail": f"{basin.code} 已缫完封档，不再登记汤温"}), 400
+        await repo.add_reading(basin, temp, g.user.username)
         basin = await repo.get(basin_id)
         return _basin_json(basin)
 
