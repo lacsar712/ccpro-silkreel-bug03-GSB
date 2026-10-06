@@ -34,6 +34,16 @@ class BasinRepo:
         )
         return result.scalar_one_or_none()
 
+    async def get_for_update(self, basin_id: int) -> Basin | None:
+        """行锁读盆：登汤温/改态先锁本盆行，并发双写在库里串行化。"""
+        result = await self.session.execute(
+            select(Basin)
+            .options(selectinload(Basin.readings))
+            .where(Basin.id == basin_id)
+            .with_for_update()
+        )
+        return result.scalar_one_or_none()
+
     async def add_reading(self, basin: Basin, temp_c: float, operator: str) -> BathReading:
         row = BathReading(basin=basin, water_temp_c=temp_c, operator=operator)
         self.session.add(row)

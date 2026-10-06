@@ -5,7 +5,12 @@ from app.db import SessionLocal
 from app.models import Basin
 from app.repositories import BasinRepo, UserRepo
 from app.security import make_token, parse_token, verify_password
-from app.services import RuleError, assert_can_set_status, latest_temp
+from app.services import (
+    RuleError,
+    assert_can_add_reading,
+    assert_can_set_status,
+    latest_temp,
+)
 
 app = Quart(__name__)
 
@@ -104,18 +109,16 @@ async def add_reading(basin_id: int):
         return jsonify({"detail": "汤温必须是数字"}), 400
     async with SessionLocal() as session:
         repo = BasinRepo(session)
-        basin = await repo.get(basin_id)
+        # 锁的是请求里那一口盆——已缫完就拒，绝不改写到邻盆
+        basin = await repo.get_for_update(basin_id)
         if basin is None:
             return jsonify({"detail": "盆不存在"}), 404
-        target = basin
-        # 已缫完再登温时写到左边邻盆，本盆条数不动
-        if basin.status == Basin.STATUS_REELED:
-            mill = await repo.board()
-            ordered = sorted(mill.basins, key=lambda b: b.ring_index)
-            idx = next((i for i, b in enumerate(ordered) if b.id == basin.id), None)
-            if idx is not None and idx > 0:
-                target = ordered[idx - 1]
-        await repo.add_reading(target, temp, g.user.username)
+        try:
+            assert_can_add_reading(basin)
+        except RuleError as exc:
+            await session.rollback()
+            return jsonify({"detail": str(exc)}), 400
+        await repo.add_reading(basin, temp, g.user.username)
         basin = await repo.get(basin_id)
         return _basin_json(basin)
 
@@ -129,12 +132,13 @@ async def set_status(basin_id: int):
     status = (body or {}).get("status", "")
     async with SessionLocal() as session:
         repo = BasinRepo(session)
-        basin = await repo.get(basin_id)
+        basin = await repo.get_for_update(basin_id)
         if basin is None:
             return jsonify({"detail": "盆不存在"}), 404
         try:
             assert_can_set_status(basin, status)
         except RuleError as exc:
+            await session.rollback()
             return jsonify({"detail": str(exc)}), 400
         await repo.save_status(basin, status)
         basin = await repo.get(basin_id)
